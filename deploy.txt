@@ -23,4 +23,6 @@ helm_mon_name  =monitoring
 helm_mon_repo  =prometheus-community
 helm_mon_chart =kube-prometheus-stack
 helm_mon_opts  ={"grafana.enabled": "true"}
-
+# Ollama stuff
+ollama_pull_path =/api/pull
+ollama_pull_data ={"name":"qwen3:0.6b"}

@@ -23,8 +23,6 @@ def make_caller(role, region, cluster, nodegroup):
 if os.name == 'nt':
     os.system('color')
 
-p = Path
-
 # == printing, input ==
 RED     = 31
 GREEN   = 32
@@ -55,7 +53,7 @@ def pr_ok():
 
 def spin_wait(get_func, test_func, dpy_func=None, delay=10):
     time_started = time.time()
-    is_time_shown = False
+    is_longer = False
     dpy = None
     last_dpy_len = 0
     space = ' ' * delay
@@ -64,8 +62,9 @@ def spin_wait(get_func, test_func, dpy_func=None, delay=10):
         ok = test_func(data)
         if dpy_func:
             dpy = dpy_func(data)
-            pr(f'[{dpy}] ')
             last_dpy_len = len(dpy) + 3
+            if not is_longer:
+                pr(f'[{dpy}] ')
         if ok:
             pr('OK\n', color=GREEN)
             break
@@ -76,15 +75,17 @@ def spin_wait(get_func, test_func, dpy_func=None, delay=10):
         pr(cur_back(delay))
         pr(space)
         pr(cur_back(delay + last_dpy_len))
-        if is_time_shown:
+        if is_longer:
             pr(cur_back(7))
-        is_time_shown = True
+        is_longer = True
         time_elapsed = int(time.time() - time_started)
         time_unit = 's'
         if time_elapsed > 180:
             time_elapsed //= 60
             time_unit = 'm'
         pr(f'[{time_elapsed:3}{time_unit}] ')
+        if dpy:
+            pr(f'[{dpy}] ')
 
 # == deploy vals ==
 
@@ -169,6 +170,9 @@ def helm(*args, no_json=False, can_fail=False):
     if not no_json:
         extra_args.append('--output=json')
     return _run(['helm', *args, *extra_args], no_json, can_fail)
+
+def curl_send(url, data, can_fail=False):
+    return _run(['curl', url, '-d', data], True, can_fail)     
 
 def short_struct(obj):
     obj_items_text = []
@@ -385,7 +389,7 @@ def ns_pods_rdy(ns):
 # == main ==
 
 def parse_args(args):
-    fast, use_lb, dvf = False, False, p('deploy.txt')
+    fast, use_lb, dvf = False, False, Path('deploy.txt')
     state = 'reset'
     for arg in args:
         if state == 'reset':
@@ -413,7 +417,7 @@ def parse_args(args):
                 pr('  Display this help message.\n')
                 exit(0)
         elif state == 'dvf':
-            dvf = p(arg)
+            dvf = Path(arg)
             state = 'reset'
     if state != 'reset':
         pr(f'Incomplete list of args - was expecting {state}. Abort.\n', color=RED)
@@ -605,13 +609,13 @@ def main():
 
     # list services
     pr('Listing services... ')
-    svcss = []
+    svcss = {}
     for ns in NSS:
-        svcss.append(kube_list_svc(ns=ns))
+        svcss[ns] = kube_list_svc(ns=ns)
         pr(f'{ns} ')
     pr('\n')
     pr('Services:\n')
-    for svcs in svcss: 
+    for _, svcs in svcss.items(): 
         for name, svc in svcs.items():
             pr(f'- {name}\n')
             pr(f'  {svc.hostname}:{svc.port}\n', color=CYAN)
@@ -619,6 +623,12 @@ def main():
     if not use_lb:
         pr('LoadBalancers were not patched in.\n', color=YELLOW)
 
+    pr('Pulling Qwen3 model... ')
+    ollama_host, ollama_port = svcss[LLM_NS]['ollama']
+    ollama_pull_path = dv['ollama_pull_path']
+    ollama_pull_url = f'http://{ollama_host}:{ollama_port}{ollama_pull_path}'
+    curl_send(ollama_pull_url, dv['ollama_pull_data'])
+    pr_ok()
     pr('WIP')
 
 if __name__ == '__main__':
