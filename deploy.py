@@ -165,7 +165,10 @@ def kube(*args, no_json=False, can_fail=False):
     return _run(['kubectl', *args, '--output=json'], no_json, can_fail)
 
 def helm(*args, no_json=False, can_fail=False):
-    return _run(['helm', *args], True, can_fail)
+    extra_args = []
+    if not no_json:
+        extra_args.append('--output=json')
+    return _run(['helm', *args, *extra_args], no_json, can_fail)
 
 def short_struct(obj):
     obj_items_text = []
@@ -324,13 +327,16 @@ def kube_list_svc(ns=None):
             name = svc['metadata']['name']
             ports = svc['spec']['ports']
             lb = svc['status']['loadBalancer']
-            hostname = lb['ingress']['hostname']
+            hostname = None
             port = None
+            ingress = lb.get('ingress')
+            if ingress:
+                hostname = ingress[0]['hostname']
             for port_info in ports:
                 if port_info['name'] == 'http':
                     port = port_info['port']
                     break
-            if port:
+            if hostname and port:
                 svcs[name] = Svc(hostname, port)
     return svcs
 
@@ -347,6 +353,13 @@ def helm_install(name, repo, chart, opts, ns=None):
     for key, val in opts.items():
         opts_args += ['--set', f'{key}={val}']
     return helm(*kube_ns_arg(ns), 'install', name, f'{repo}/{chart}', *opts_args, no_json=True)
+
+def helm_is_rdy(name, ns=None):
+    items = helm(*kube_ns_arg(ns), 'list')
+    for item in items:
+        if item['name'] == name:
+            return item['status'] == 'deployed'
+    return None
 
 # == various utils ==
 
@@ -521,29 +534,31 @@ def main():
     nodes_cnt = update_kube_config(caller)
     pr_ok()
     pr(f'Kube: {nodes_cnt} nodes up.\n')
-    pr('Waiting for nodes to initialize... ')
+    pr('Waiting for system pods to initialize... ')
     spin_wait(*ns_pods_rdy('kube-system'))
-    pr('---\n')
+
+    # creating namespaces
+    APP_NS = dv['app_ns']
+    LLM_NS = dv['llm_ns']
+    MON_NS = dv['mon_ns']
+    NSS = APP_NS, LLM_NS, MON_NS
+    pr('Creating namespaces... ')
+    for ns in NSS:
+        kube_new_ns(APP_NS)
+        pr(f'{ns} ', color=GREEN)
+    pr('\n---\n')
 
     # deploy microservices app
-    APP_NS = dv['app_ns']
     pr('Applying microservices-demo... ')
-    kube_new_ns(APP_NS)
     kube_apply(dv['app_url'], ns=APP_NS)
     pr_ok()
-    if use_lb:
-        pr('Patching in LoadBalancers... ')
-        # kube_patch('svc', 'frontend', 'merge', dv['lb_patch'], ns=APP_NS)
-        pr_ok()
     if not fast:
         pr('Awaiting app readiness... ')
         spin_wait(*ns_pods_rdy(APP_NS))
     pr('---\n')
 
     # deploy ollama+openwebui
-    LLM_NS = dv['llm_ns']
     pr('Applying ollama... ')
-    kube_new_ns(LLM_NS)
     kube_apply(dv['ollama_url'], ns=LLM_NS)
     pr_ok()
     pr('Applying open-webui... ')
@@ -561,19 +576,19 @@ def main():
     pr('---\n')
 
     # deploy prometheus+grafana
-    MON_NS = dv['mon_ns']
+    HELM_MON_NAME = dv['helm_mon_name']
     HELM_MON_REPO = dv['helm_mon_repo']
-    pr('Adding prometheus-community repo... ')
-    kube_new_ns(MON_NS)
-    helm_repo_add(HELM_MON_REPO, dv['promgraf_url'])
-    pr_ok() 
-    pr('Updating helm repos... ')
-    helm_repo_update()
-    pr_ok() 
-    pr('Installing kube-prometheus-stack... ')
-    opts = dv['helm_mon_opts', json.loads]
-    helm_install(dv['helm_mon_name'], HELM_MON_REPO, dv['helm_mon_chart'], opts, ns=MON_NS)
-    pr_ok()
+    if helm_is_rdy(HELM_MON_NAME, ns=MON_NS) is None:
+        pr('Adding prometheus-community repo... ')
+        helm_repo_add(HELM_MON_REPO, dv['promgraf_url'])
+        pr_ok() 
+        pr('Updating helm repos... ')
+        helm_repo_update()
+        pr_ok() 
+        pr('Installing kube-prometheus-stack... ')
+        opts = dv['helm_mon_opts', json.loads]
+        helm_install(HELM_MON_NAME, HELM_MON_REPO, dv['helm_mon_chart'], opts, ns=MON_NS)
+        pr_ok()
     if not fast:
         pr('Awaiting monitoring readiness... ')
         spin_wait(*ns_pods_rdy(MON_NS))
@@ -588,6 +603,21 @@ def main():
         spin_wait(*ns_pods_rdy(MON_NS))
         pr('---\n')
 
+    # list services
+    pr('Listing services... ')
+    svcss = []
+    for ns in NSS:
+        svcss.append(kube_list_svc(ns=ns))
+        pr(f'{ns} ')
+    pr('\n')
+    pr('Services:\n')
+    for svcs in svcss: 
+        for name, svc in svcs.items():
+            pr(f'- {name}\n')
+            pr(f'  {svc.hostname}:{svc.port}\n', color=CYAN)
+    pr('---\n')
+    if not use_lb:
+        pr('LoadBalancers were not patched in.\n', color=YELLOW)
 
     pr('WIP')
 
