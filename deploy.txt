@@ -1,0 +1,26 @@
+# basic info
+role           =LabRole
+region	       =us-east-1
+cluster_name   =cluster
+nodegroup_name =nodes
+subnets        =2
+machine_type   =t3.large
+min_nodes      =6
+max_nodes      =6
+typ_nodes      =6
+lb_patch       ={"spec":{"type":"LoadBalancer"}}
+# URLs
+app_url        =infra/microservices-demo.yaml
+ollama_url     =infra/ollama.yaml
+webui_url      =infra/open-web-ui.yaml
+promgraf_url   =https://prometheus-community.github.io/helm-charts
+# namespaces
+app_ns         =app
+llm_ns         =agent
+mon_ns         =monitor
+# Helm stuff
+helm_mon_name  =monitoring
+helm_mon_repo  =prometheus-community
+helm_mon_chart =kube-prometheus-stack
+helm_mon_opts  ={"grafana.enabled": "true"}
+
