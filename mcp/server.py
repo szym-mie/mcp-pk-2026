@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 
@@ -428,9 +428,5 @@ async def prometheus_status():
 
 
 if __name__ == '__main__':
-    mcp.run(
-        transport='http',
-        host='0.0.0.0',
-        port=8000
-    )
+    mcp.run()
 

@@ -169,9 +169,10 @@ def _run(args, no_json, can_fail):
 def _popen(args):
     unqual_exec, *rest = args
     fully_qual_exec = shutil.which(unqual_exec)
-    if fully_qual_exec:
+    if not fully_qual_exec:
         return None
-    return subprocess.Popen([unqual_exec] + rest)
+    out = subprocess.DEVNULL
+    return subprocess.Popen([unqual_exec] + rest, stdout=out, stderr=out)
 
 def aws(*args, no_json=False, can_fail=False):
     return _run(['aws', *args, '--output=json'], no_json, can_fail)
@@ -179,10 +180,12 @@ def aws(*args, no_json=False, can_fail=False):
 def kube(*args, no_json=False, can_fail=False):
     return _run(['kubectl', *args, '--output=json'], no_json, can_fail)
 
-def helm(*args, no_json=False, can_fail=False):
+def helm(*args, no_json=False, can_fail=False, in_bg=False):
     extra_args = []
     if not no_json:
         extra_args.append('--output=json')
+    if in_bg:
+        return _popen(['helm', *args])
     return _run(['helm', *args, *extra_args], no_json, can_fail)
 
 def curl_send(url, data, can_fail=False):
@@ -351,7 +354,7 @@ def kube_list_svc(ns=None):
             if ingress:
                 hostname = ingress[0]['hostname']
             for port_info in ports:
-                if port_info['name'] == 'http':
+                if port_info.get('name') == 'http':
                     port = port_info['port']
                     break
             if hostname and port:
@@ -385,7 +388,7 @@ def helm_install(name, repo, chart, opts, ns=None):
     opts_args = []
     for key, val in opts.items():
         opts_args += ['--set', f'{key}={val}']
-    return helm(*kube_ns_arg(ns), 'install', name, f'{repo}/{chart}', *opts_args, no_json=True)
+    return helm(*kube_ns_arg(ns), 'install', name, f'{repo}/{chart}', *opts_args, in_bg=True)
 
 def helm_is_rdy(name, ns=None):
     items = helm(*kube_ns_arg(ns), 'list')
@@ -401,9 +404,9 @@ def pods_rdy_cnt(pods):
     rdy_pods_cnt = sum([is_pod_rdy(pod) for pod in pods])
     return rdy_pods_cnt, all_pods_cnt
 
-def are_pods_rdy(pods):
+def are_pods_rdy(pods, min_cnt=0):
     rdy_cnt, all_cnt = pods_rdy_cnt(pods)
-    return rdy_cnt == all_cnt
+    return rdy_cnt == all_cnt and all_cnt >= min_cnt
 
 def pr_pods_rdy_cnt(pods):
     rdy_cnt, all_cnt = pods_rdy_cnt(pods)
@@ -412,8 +415,9 @@ def pr_pods_rdy_cnt(pods):
     rdy_cnt = str(rdy_cnt).rjust(digits, ' ')
     return f'{rdy_cnt}/{all_cnt}'
 
-def ns_pods_rdy(ns):
-    return lambda: kube_get_pods(ns), are_pods_rdy, pr_pods_rdy_cnt 
+def ns_pods_rdy(ns, min_cnt=0):
+    test_func = lambda pods: are_pods_rdy(pods, min_cnt)
+    return lambda: kube_get_pods(ns), test_func, pr_pods_rdy_cnt 
 
 # == main ==
 
@@ -636,7 +640,7 @@ def main():
         pr_ok()
     if not fast:
         pr('Awaiting monitoring readiness... ')
-        spin_wait(*ns_pods_rdy(MON_NS))
+        spin_wait(*ns_pods_rdy(MON_NS, 10))
     pr('---\n')
     
     if fast:
@@ -646,7 +650,7 @@ def main():
         spin_wait(*ns_pods_rdy(LLM_NS))
         setup_llm_pf()
         pr('Awaiting monitoring readiness... ')
-        spin_wait(*ns_pods_rdy(MON_NS))
+        spin_wait(*ns_pods_rdy(MON_NS, 10))
         pr('---\n')
 
     # list services
