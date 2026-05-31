@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-mcp-code
+  namespace: agent
+data:
+  server.py: |

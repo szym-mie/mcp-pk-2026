@@ -6,6 +6,7 @@ import time
 import json
 import shutil
 import subprocess
+import textwrap
 from collections import namedtuple
 from pathlib import Path
 from typing import Iterable
@@ -334,8 +335,11 @@ def kube_get_pods(ns=None):
 def kube_new_ns(ns):
     return kube('create', 'ns', ns, no_json=True, can_fail=True)
 
-def kube_apply(url, ns=None):
-    return kube(*kube_ns_arg(ns), 'apply', '-f', url)
+def kube_apply(*urls, ns=None):
+    file_args = []
+    for url in urls:
+        file_args += ['-f', url]
+    return kube(*kube_ns_arg(ns), 'apply', *file_args)
 
 def kube_patch(what, name, how, patch, ns=None):
     return kube(*kube_ns_arg(ns), 'patch', what, name, '--type', how, '-p', json.dumps(patch))
@@ -375,6 +379,14 @@ def kube_pf(what, name, port_spec, ns=None):
     proc = _popen(['kubectl', *kube_ns_arg(ns), 'port-forward', entity, ports])
     if proc:
         proc_tab.append(proc)
+
+def kube_make_configmap(template_fp, payload_fp, out_fp, indent=4):
+    space = ' ' * indent
+    for line in template_fp.readlines():
+        out_fp.write(line)
+    for line in payload_fp.readlines():
+        # remove CR and indent
+        out_fp.write(textwrap.indent(line.replace('\r', ''), space))
 
 # == helm ==
 
@@ -634,7 +646,7 @@ def main():
         pr('Updating helm repos... ')
         helm_repo_update()
         pr_ok() 
-        pr('Installing kube-prometheus-stack... ')
+        pr('Initializing kube-prometheus-stack... ')
         opts = dv['helm_mon_opts', json.loads]
         helm_install(HELM_MON_NAME, HELM_MON_REPO, dv['helm_mon_chart'], opts, ns=MON_NS)
         pr_ok()
@@ -667,15 +679,28 @@ def main():
             pr(f'  {svc.hostname}:{svc.port}\n', color=CYAN)
     pr('---\n')
 
-    pr('Pulling Qwen3 model... ')
+    pr('Pulling agent model... ')
     ollama_host, ollama_port = svcss[LLM_NS]['ollama']
     ollama_pull_path = dv['ollama_pull_path']
     ollama_pull_url = f'http://{ollama_host}:{ollama_port}{ollama_pull_path}'
     curl_send(ollama_pull_url, dv['ollama_pull_data'])
     pr_ok()
-    pr('Apply the Prometheus MCP server... ')
-    kube_apply(dv['mcp_url'], ns=LLM_NS)
+    pr('Creating prometheus-mcp-configmap... ')
+    template_path = dv['mcp_template_url', Path]
+    payload_path = dv['mcp_serverpy_url', Path]
+    configmap_path = dv['mcp_configmap_url', Path]
+    with open(template_path) as template_fp, \
+            open(payload_path) as payload_fp, \
+            open(configmap_path, 'w') as configmap_fp:
+        kube_make_configmap(template_fp, payload_fp, configmap_fp)
     pr_ok()
+    pr('Applying prometheus-mcp... ')
+    kube_apply(dv['mcp_url'], ns=LLM_NS)
+    kube_apply(dv['mcp_configmap_url'], ns=LLM_NS)
+    pr_ok()
+    pr('Awaiting MCP readiness... ')
+    spin_wait(*ns_pods_rdy(LLM_NS))
+    pr('---\n')
     pr('WIP')
 
 if __name__ == '__main__':

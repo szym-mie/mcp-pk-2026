@@ -1,15 +1,15 @@
 # basic info
 role           =LabRole
-region         =us-east-1
-cluster_name   =cluster
-nodegroup_name =nodes
-subnets        =2
-machine_type   =t3.large
-min_nodes      =6
-max_nodes      =6
-typ_nodes      =6
+region             =us-east-1
+cluster_name       =cluster
+nodegroup_name     =nodes
+subnets            =2
+machine_type       =t3.large
+min_nodes          =6
+max_nodes          =6
+typ_nodes          =6
 # load-balancing and port-forwarding
-lb_patch       ={"spec":{"type":"LoadBalancer"}}
+lb_patch           ={"spec":{"type":"LoadBalancer"}}
 # use load-balancing
 use_llm_lb
 use_mon_lb
@@ -17,20 +17,23 @@ use_mon_lb
 #use_llm_pf
 #use_mon_pf
 # URLs
-app_url        =infra/microservices-demo.yaml
-ollama_url     =infra/ollama.yaml
-webui_url      =infra/open-web-ui.yaml
-mcp_url        =mcp/prometheus-mcp.yaml
-promgraf_url   =https://prometheus-community.github.io/helm-charts
+app_url            =infra/microservices-demo.yaml
+ollama_url         =infra/ollama.yaml
+webui_url          =infra/open-web-ui.yaml
+mcp_url            =mcp/prometheus-mcp.yaml
+mcp_template_url   =mcp/prometheus-mcp-configmap.template.yaml
+mcp_serverpy_url   =mcp/server.py
+mcp_configmap_url  =mcp/prometheus-mcp-configmap.yaml
+promgraf_url       =https://prometheus-community.github.io/helm-charts
 # namespaces
-app_ns         =app
-llm_ns         =agent
-mon_ns         =monitor
+app_ns             =app
+llm_ns             =agent
+mon_ns             =monitor
 # Helm stuff
-helm_mon_name  =monitoring
-helm_mon_repo  =prometheus-community
-helm_mon_chart =kube-prometheus-stack
-helm_mon_opts  ={"grafana.enabled": "true"}
+helm_mon_name      =monitoring
+helm_mon_repo      =prometheus-community
+helm_mon_chart     =kube-prometheus-stack
+helm_mon_opts      ={"grafana.enabled": "true"}
 # Ollama stuff
-ollama_pull_path =/api/pull
-ollama_pull_data ={"name":"qwen3:0.6b"}
+ollama_pull_path   =/api/pull
+ollama_pull_data   ={"name":"qwen3:0.6b"}

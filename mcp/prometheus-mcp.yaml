@@ -43,21 +43,36 @@ spec:
     spec:
       serviceAccountName: prometheus-mcp
       containers:
-        - name: mcp
-          image: ghcr.io/szym-mie/prometheus-mcp:latest
-          imagePullPolicy: Always
+        - name: prometheus-mcp
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
           env:
             - name: PROMETHEUS_URL
               value: "http://prometheus-operated.monitor.svc.cluster.local:9090"
           ports:
             - containerPort: 8000
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              pip install --no-cache-dir mcp[cli] mcpo httpx pydantic
+              mcpo --host 0.0.0.0 --port 8000 -- python /app/server.py
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 1024Mi
+          volumeMounts:
+            - name: prometheus-mcp-server-code
+              mountPath: /app/server.py
+              subPath: server.py
+      volumes:
+        - name: prometheus-mcp-server-code
+          configMap:
+            name: prometheus-mcp-code
 
 ---
 apiVersion: v1
