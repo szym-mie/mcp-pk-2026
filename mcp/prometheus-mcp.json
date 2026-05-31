@@ -1,0 +1,14 @@
+[{
+  	"type": "streamable-http",
+	"url": "http://prometheus-mcp.agent.svc.cluster.local:8000",
+	"spec_type": "url",
+	"spec": "",
+	"path": "/mcp",
+	"auth_type": "none",
+	"key": "",
+  	"info": {
+		"id": "prometheus",
+  		"name": "Prometheus",
+  		"description": "Prometheus metrics and time-series queries"
+  	}
+}]

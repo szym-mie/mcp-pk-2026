@@ -3,6 +3,7 @@ kind: ServiceAccount
 metadata:
   name: prometheus-mcp
   namespace: agent
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -13,19 +14,17 @@ spec:
   podSelector:
     matchLabels:
       app: prometheus-mcp
-
   policyTypes:
     - Egress
-
   egress:
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitor
-
       ports:
         - protocol: TCP
           port: 9090
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,41 +33,32 @@ metadata:
   namespace: agent
 spec:
   replicas: 1
-
   selector:
     matchLabels:
       app: prometheus-mcp
-
   template:
     metadata:
       labels:
         app: prometheus-mcp
-
     spec:
       serviceAccountName: prometheus-mcp
-
       containers:
         - name: mcp
-
-          image: ghcr.io/your-org/prometheus-mcp:latest
-
+          image: ghcr.io/szym-mie/prometheus-mcp:latest
           imagePullPolicy: Always
-
           env:
             - name: PROMETHEUS_URL
               value: "http://prometheus-operated.monitor.svc.cluster.local:9090"
-
           ports:
             - containerPort: 8000
-
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
-
             limits:
               cpu: 500m
               memory: 512Mi
+
 ---
 apiVersion: v1
 kind: Service
@@ -78,9 +68,7 @@ metadata:
 spec:
   selector:
     app: prometheus-mcp
-
   ports:
     - port: 8000
       targetPort: 8000
-
   type: ClusterIP

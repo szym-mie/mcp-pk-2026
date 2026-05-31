@@ -1,6 +1,0 @@
-{
-  "name": "Prometheus",
-  "description": "Prometheus metrics and time-series queries",
-  "type": "streamable-http",
-  "url": "http://prometheus-mcp.agent.svc.cluster.local:8000/mcp"
-}

@@ -200,8 +200,8 @@ async def top_cpu_consumers(
       50,
       sum by (namespace, pod)(
         rate(container_cpu_usage_seconds_total{
-          container!='',
-          pod!=''
+          container!=\'\',
+          pod!=\'\'
         }[5m])
       )
     )
@@ -239,8 +239,8 @@ async def top_memory_consumers(
       50,
       sum by (namespace, pod)(
         container_memory_working_set_bytes{
-          container!='',
-          pod!=''
+          container!=\'\',
+          pod!=\'\'
         }
       )
     )
@@ -271,17 +271,12 @@ async def active_alerts() -> list[dict]:
     Return firing Prometheus alerts.
     '''
 
-    query = 'ALERTS{alertstate='firing'}'
-
+    query = 'ALERTS{alertstate=\'firing\'}'
     response = await prom.query(query)
-
     results = extract_vector(response)
-
     alerts = []
-
     for r in results:
         metric = r['metric']
-
         alerts.append(
             {
                 'alert': metric.get('alertname'),
@@ -314,9 +309,7 @@ async def pod_restarts(
     '''
 
     response = await prom.query(query)
-
     results = extract_vector(response)
-
     return [
         {
             'namespace': r['metric'].get('namespace'),
@@ -340,8 +333,8 @@ async def namespace_usage(
     sum(
       rate(
         container_cpu_usage_seconds_total{{
-          namespace='{namespace}',
-          container!=''
+          namespace=\'{namespace}\',
+          container!=\'\'
         }}[5m]
       )
     )
@@ -350,15 +343,14 @@ async def namespace_usage(
     mem_query = f'''
     sum(
       container_memory_working_set_bytes{{
-        namespace='{namespace}',
-        container!=''
+        namespace=\'{namespace}\',
+        container!=\'\'
       }}
     )
     '''
 
     cpu = await prom.query(cpu_query)
     mem = await prom.query(mem_query)
-
     cpu_value = (
         extract_scalar_value(
             extract_vector(cpu)[0]
@@ -366,7 +358,6 @@ async def namespace_usage(
         if extract_vector(cpu)
         else 0
     )
-
     mem_value = (
         extract_scalar_value(
             extract_vector(mem)[0]
@@ -374,7 +365,6 @@ async def namespace_usage(
         if extract_vector(mem)
         else 0
     )
-
     return {
         'namespace': namespace,
         'cpu_cores': round(cpu_value, 3),
@@ -391,21 +381,19 @@ async def cluster_health() -> dict:
     '''
 
     node_query = '''
-    sum(up{job=~'.*node.*'})
+    sum(up{job=~\'.*node.*\'})
     '''
-
     pod_query = '''
     count(
       kube_pod_status_phase{
-        phase='Running'
+        phase=\'Running\'
       }
     )
     '''
-
     alert_query = '''
     count(
       ALERTS{
-        alertstate='firing'
+        alertstate=\'firing\'
       }
     )
     '''
@@ -413,7 +401,6 @@ async def cluster_health() -> dict:
     nodes = await prom.query(node_query)
     pods = await prom.query(pod_query)
     alerts = await prom.query(alert_query)
-
     return {
         'nodes_up': int(
             extract_scalar_value(
@@ -441,4 +428,9 @@ async def prometheus_status():
 
 
 if __name__ == '__main__':
-    mcp.run()
+    mcp.run(
+        transport='http',
+        host='0.0.0.0',
+        port=8000
+    )
+

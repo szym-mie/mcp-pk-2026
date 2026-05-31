@@ -669,6 +669,9 @@ def main():
     ollama_pull_url = f'http://{ollama_host}:{ollama_port}{ollama_pull_path}'
     curl_send(ollama_pull_url, dv['ollama_pull_data'])
     pr_ok()
+    pr('Apply the Prometheus MCP server... ')
+    kube_apply(dv['mcp_url'], ns=LLM_NS)
+    pr_ok()
     pr('WIP')
 
 if __name__ == '__main__':
