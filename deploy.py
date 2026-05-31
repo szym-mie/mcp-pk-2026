@@ -652,7 +652,7 @@ def main():
         pr_ok()
     if not fast:
         pr('Awaiting monitoring readiness... ')
-        spin_wait(*ns_pods_rdy(MON_NS, 10))
+        spin_wait(*ns_pods_rdy(MON_NS, 4))
     pr('---\n')
     
     if fast:
@@ -662,7 +662,7 @@ def main():
         spin_wait(*ns_pods_rdy(LLM_NS))
         setup_llm_pf()
         pr('Awaiting monitoring readiness... ')
-        spin_wait(*ns_pods_rdy(MON_NS, 10))
+        spin_wait(*ns_pods_rdy(MON_NS, 4))
         pr('---\n')
 
     # list services

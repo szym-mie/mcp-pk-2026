@@ -1,5 +1,5 @@
 # basic info
-role           =LabRole
+role               =LabRole
 region             =us-east-1
 cluster_name       =cluster
 nodegroup_name     =nodes
