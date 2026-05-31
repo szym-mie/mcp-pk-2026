@@ -165,6 +165,272 @@ async def get_label_values(
     result = await prom.label_values(label)
     return result['data']
 
+# extra tools
+
+def extract_vector(response: dict[str, Any]) -> list[dict]:
+    if response['status'] != 'success':
+        raise RuntimeError(response)
+
+    return response['data']['result']
+
+
+def extract_scalar_value(item: dict) -> float:
+    return float(item['value'][1])
+
+
+def top_n(results: list[dict], n: int = 10):
+    sorted_results = sorted(
+        results,
+        key=extract_scalar_value,
+        reverse=True,
+    )
+
+    return sorted_results[:n]
+
+@mcp.tool()
+async def top_cpu_consumers(
+    limit: int = 10,
+) -> list[dict]:
+    '''
+    Top CPU-consuming Kubernetes pods.
+    '''
+
+    query = '''
+    topk(
+      50,
+      sum by (namespace, pod)(
+        rate(container_cpu_usage_seconds_total{
+          container!='',
+          pod!=''
+        }[5m])
+      )
+    )
+    '''
+
+    response = await prom.query(query)
+
+    results = top_n(
+        extract_vector(response),
+        limit,
+    )
+
+    return [
+        {
+            'namespace': r['metric'].get('namespace'),
+            'pod': r['metric'].get('pod'),
+            'cpu_cores': round(
+                extract_scalar_value(r),
+                4,
+            ),
+        }
+        for r in results
+    ]
+
+@mcp.tool()
+async def top_memory_consumers(
+    limit: int = 10,
+) -> list[dict]:
+    '''
+    Top memory-consuming pods.
+    '''
+
+    query = '''
+    topk(
+      50,
+      sum by (namespace, pod)(
+        container_memory_working_set_bytes{
+          container!='',
+          pod!=''
+        }
+      )
+    )
+    '''
+
+    response = await prom.query(query)
+
+    results = top_n(
+        extract_vector(response),
+        limit,
+    )
+
+    return [
+        {
+            'namespace': r['metric'].get('namespace'),
+            'pod': r['metric'].get('pod'),
+            'memory_mb': round(
+                extract_scalar_value(r) / 1024 / 1024,
+                1,
+            ),
+        }
+        for r in results
+    ]
+
+@mcp.tool()
+async def active_alerts() -> list[dict]:
+    '''
+    Return firing Prometheus alerts.
+    '''
+
+    query = 'ALERTS{alertstate='firing'}'
+
+    response = await prom.query(query)
+
+    results = extract_vector(response)
+
+    alerts = []
+
+    for r in results:
+        metric = r['metric']
+
+        alerts.append(
+            {
+                'alert': metric.get('alertname'),
+                'severity': metric.get('severity'),
+                'namespace': metric.get('namespace'),
+                'instance': metric.get('instance'),
+            }
+        )
+
+    return alerts
+
+@mcp.tool()
+async def pod_restarts(
+    hours: int = 24,
+    limit: int = 20,
+) -> list[dict]:
+    '''
+    Pods with the most restarts.
+    '''
+
+    query = f'''
+    topk(
+      {limit},
+      sum by(namespace,pod)(
+        increase(
+          kube_pod_container_status_restarts_total[{hours}h]
+        )
+      )
+    )
+    '''
+
+    response = await prom.query(query)
+
+    results = extract_vector(response)
+
+    return [
+        {
+            'namespace': r['metric'].get('namespace'),
+            'pod': r['metric'].get('pod'),
+            'restarts': int(
+                extract_scalar_value(r)
+            ),
+        }
+        for r in results
+    ]
+
+@mcp.tool()
+async def namespace_usage(
+    namespace: str,
+) -> dict:
+    '''
+    CPU and memory usage for a namespace.
+    '''
+
+    cpu_query = f'''
+    sum(
+      rate(
+        container_cpu_usage_seconds_total{{
+          namespace='{namespace}',
+          container!=''
+        }}[5m]
+      )
+    )
+    '''
+
+    mem_query = f'''
+    sum(
+      container_memory_working_set_bytes{{
+        namespace='{namespace}',
+        container!=''
+      }}
+    )
+    '''
+
+    cpu = await prom.query(cpu_query)
+    mem = await prom.query(mem_query)
+
+    cpu_value = (
+        extract_scalar_value(
+            extract_vector(cpu)[0]
+        )
+        if extract_vector(cpu)
+        else 0
+    )
+
+    mem_value = (
+        extract_scalar_value(
+            extract_vector(mem)[0]
+        )
+        if extract_vector(mem)
+        else 0
+    )
+
+    return {
+        'namespace': namespace,
+        'cpu_cores': round(cpu_value, 3),
+        'memory_mb': round(
+            mem_value / 1024 / 1024,
+            1,
+        ),
+    }
+
+@mcp.tool()
+async def cluster_health() -> dict:
+    '''
+    High-level Kubernetes cluster health.
+    '''
+
+    node_query = '''
+    sum(up{job=~'.*node.*'})
+    '''
+
+    pod_query = '''
+    count(
+      kube_pod_status_phase{
+        phase='Running'
+      }
+    )
+    '''
+
+    alert_query = '''
+    count(
+      ALERTS{
+        alertstate='firing'
+      }
+    )
+    '''
+
+    nodes = await prom.query(node_query)
+    pods = await prom.query(pod_query)
+    alerts = await prom.query(alert_query)
+
+    return {
+        'nodes_up': int(
+            extract_scalar_value(
+                extract_vector(nodes)[0]
+            )
+        ),
+        'running_pods': int(
+            extract_scalar_value(
+                extract_vector(pods)[0]
+            )
+        ),
+        'active_alerts': int(
+            extract_scalar_value(
+                extract_vector(alerts)[0]
+            )
+        ),
+    }
 
 @mcp.resource('prometheus://status')
 async def prometheus_status():

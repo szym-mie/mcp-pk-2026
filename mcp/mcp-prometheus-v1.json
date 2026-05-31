@@ -1,16 +1,6 @@
-[
-  {
-    "type": "openapi",
-    "url": "http://k8s-mcp-verbose:8000",
-    "spec_type": "url",
-    "spec": "",
-    "path": "/openapi.json",
-    "auth_type": "none",
-    "key": "",
-    "info": {
-      "id": "k8s-mcp-verbose",
-      "name": "k8s-mcp-verbose",
-      "description": "Verbose Kubernetes MCP server for context-size and prompt-injection experiments"
-    }
-  }
-]
+{
+  "name": "Prometheus",
+  "description": "Prometheus metrics and time-series queries",
+  "type": "streamable-http",
+  "url": "http://prometheus-mcp.agent.svc.cluster.local:8000/mcp"
+}
