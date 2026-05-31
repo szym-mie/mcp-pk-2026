@@ -1,0 +1,16 @@
+[
+  {
+    "type": "openapi",
+    "url": "http://k8s-mcp-verbose:8000",
+    "spec_type": "url",
+    "spec": "",
+    "path": "/openapi.json",
+    "auth_type": "none",
+    "key": "",
+    "info": {
+      "id": "k8s-mcp-verbose",
+      "name": "k8s-mcp-verbose",
+      "description": "Verbose Kubernetes MCP server for context-size and prompt-injection experiments"
+    }
+  }
+]

@@ -1,6 +1,6 @@
 # basic info
 role           =LabRole
-region	       =us-east-1
+region         =us-east-1
 cluster_name   =cluster
 nodegroup_name =nodes
 subnets        =2
@@ -8,7 +8,14 @@ machine_type   =t3.large
 min_nodes      =6
 max_nodes      =6
 typ_nodes      =6
+# load-balancing and port-forwarding
 lb_patch       ={"spec":{"type":"LoadBalancer"}}
+# use load-balancing
+use_llm_lb
+use_mon_lb
+# use port-forwarding
+#use_llm_pf
+#use_mon_pf
 # URLs
 app_url        =infra/microservices-demo.yaml
 ollama_url     =infra/ollama.yaml

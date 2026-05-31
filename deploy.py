@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import json
+import shutil
 import subprocess
 from collections import namedtuple
 from pathlib import Path
@@ -32,7 +33,9 @@ MAGENTA = 35
 CYAN    = 36
 
 def cur_back(n):
-    return f'\x1b[{n}D'
+    if n > 0:
+        return f'\x1b[{n}D'
+    return ''
 
 def sgr(code):
     return f'\x1b[{code}m'
@@ -62,9 +65,9 @@ def spin_wait(get_func, test_func, dpy_func=None, delay=10):
         ok = test_func(data)
         if dpy_func:
             dpy = dpy_func(data)
+            pr(cur_back(last_dpy_len))
             last_dpy_len = len(dpy) + 3
-            if not is_longer:
-                pr(f'[{dpy}] ')
+            pr(f'[{dpy}] ')
         if ok:
             pr('OK\n', color=GREEN)
             break
@@ -93,26 +96,30 @@ class DeployVals(dict):
     def __getitem__(self, spec):
         key = None
         to_type_func = None
+        default = None
         if type(spec) is str:
             key = spec
         elif type(spec) is tuple:
-            key, to_type_func = spec
+            if len(spec) == 2:
+                key, to_type_func = spec
+            if len(spec) == 3:
+                key, to_type_func, default = spec
         convert_func = to_type_func or str
         def convert(v):
-            if not v:
+            if v is None:
                 return None
             try:
                 return convert_func(v)
             except ValueError:
                 return None
-        val = convert(super().get(key))
-        if val:
+        val = convert(super().get(key)) or default
+        if val is not None:
             return val
         pr(f'Enter \'{key}\' value as {convert_func.__name__}: (bad value/missing in deploy.txt)\n')
-        while not val:
+        while val is None:
             res = ask()
             val = convert(res)
-            if not val:
+            if val is None:
                 pr(f'Bad value for {convert_func.__name__}: {res}.\n')
         self[key] = val
         return val
@@ -145,19 +152,26 @@ def load_deploy_vals(fp):
 # == running commands ==
 
 def _run(args, no_json, can_fail):
-    result = subprocess.run(args, encoding=ENCODING, capture_output=True)
-    ret = result.returncode
+    res = subprocess.run(args, encoding=ENCODING, capture_output=True)
+    ret = res.returncode
     if ret > 0 and not can_fail:
         pr('!!\n', color=RED)
         cmd = ' '.join(args)
         pr(f'{cmd}\n---', color=RED)
-        pr(result.stderr, color=RED)
+        pr(res.stderr, color=RED)
         exit(ret)
     if no_json:
-        return result.stdout
-    if result.stdout:
-        return json.loads(result.stdout)
+        return res.stdout
+    if res.stdout:
+        return json.loads(res.stdout)
     return None
+
+def _popen(args):
+    unqual_exec, *rest = args
+    fully_qual_exec = shutil.which(unqual_exec)
+    if fully_qual_exec:
+        return None
+    return subprocess.Popen([unqual_exec] + rest)
 
 def aws(*args, no_json=False, can_fail=False):
     return _run(['aws', *args, '--output=json'], no_json, can_fail)
@@ -195,7 +209,7 @@ def short_struct(obj):
 # == aws commands ==
 
 def update_aws_creds(creds_rows):
-    dotaws_creds_path = p.home() / '.aws' / 'credentials'
+    dotaws_creds_path = Path.home() / '.aws' / 'credentials'
     creds_text = ''
     for row in creds_rows:
         creds_text += row + '\n'
@@ -344,6 +358,21 @@ def kube_list_svc(ns=None):
                 svcs[name] = Svc(hostname, port)
     return svcs
 
+proc_tab = []
+
+def kube_pf(what, name, port_spec, ns=None):
+    int_port, ext_port = None, None
+    if type(port_spec) is int:
+        int_port = port_spec
+        ext_port = port_spec
+    if type(port_spec) is tuple:
+        int_port, ext_port = port_spec
+    entity = f'{what}/{name}'
+    ports = f'{int_port}/{ext_port}'
+    proc = _popen(['kubectl', *kube_ns_arg(ns), 'port-forward', entity, ports])
+    if proc:
+        proc_tab.append(proc)
+
 # == helm ==
 
 def helm_repo_add(repo, url):
@@ -388,15 +417,23 @@ def ns_pods_rdy(ns):
 
 # == main ==
 
+def read_bool(smth):
+    if type(smth) is bool:
+        return smth
+    if type(smth) is str:
+        if smth == '0' or smth == 'false' or smth == 'False':
+            return False
+        if smth == '1' or smth == 'true' or smth == 'True':
+            return True
+    return None
+
 def parse_args(args):
-    fast, use_lb, dvf = False, False, Path('deploy.txt')
+    fast, dvf = False, Path('deploy.txt')
     state = 'reset'
     for arg in args:
         if state == 'reset':
             if arg == '-fast':
                 fast = True
-            if arg == '-lb':
-                use_lb = True
             if arg == '-file':
                 state = 'dvf'
             if arg == '-h':
@@ -406,9 +443,6 @@ def parse_args(args):
                 pr('  Postpones the readiness checks until all configs\n')
                 pr('  are applied, somewhat reducing the waiting times\n')
                 pr('  during the setup.\n')
-                pr('-lb\n')
-                pr('  Patch services so they use load balancers, alleviating\n')
-                pr('  the need fot port-forwarding.\n')
                 pr('-file FILE\n')
                 pr('  Load deploy vals (basically the deployment config)\n')
                 pr('  from the FILE, instead of deploy.txt in the current\n')
@@ -422,16 +456,14 @@ def parse_args(args):
     if state != 'reset':
         pr(f'Incomplete list of args - was expecting {state}. Abort.\n', color=RED)
         exit(1)
-    return fast, use_lb, dvf
+    return fast, dvf
 
 def main():
     _, *args = sys.argv
-    fast, use_lb, dvf = parse_args(args)
+    fast, dvf = parse_args(args)
 
     if fast:
         pr('Using fast checking.\n')
-    if use_lb:
-        pr('Using LoadBalancers.\n')
     pr(f'Using {dvf} for deploy vals.\n')
     dv = DeployVals({})
     with open(dvf) as fp:
@@ -548,7 +580,7 @@ def main():
     NSS = APP_NS, LLM_NS, MON_NS
     pr('Creating namespaces... ')
     for ns in NSS:
-        kube_new_ns(APP_NS)
+        kube_new_ns(ns)
         pr(f'{ns} ', color=GREEN)
     pr('\n---\n')
 
@@ -568,15 +600,24 @@ def main():
     pr('Applying open-webui... ')
     kube_apply(dv['webui_url'], ns=LLM_NS)
     pr_ok()
-    if use_lb:
+    WEBUI_SVC_SPEC = 'svc', 'open-webui'
+    OLLAMA_SVC_SPEC = 'svc', 'ollama'
+    def setup_llm_pf():
+        if dv['use_llm_pf', read_bool, False]:
+            pr('Setting up port-forwarding... ')
+            kube_pf(*WEBUI_SVC_SPEC, 8080, ns=LLM_NS)
+            kube_pf(*OLLAMA_SVC_SPEC, 11434, ns=LLM_NS)
+            pr_ok()
+    if dv['use_llm_lb', read_bool, False]:
         pr('Patching in LoadBalancers... ')
         lb_patch = dv['lb_patch', json.loads]
-        kube_patch('svc', 'open-webui', 'merge', lb_patch, ns=LLM_NS)
-        kube_patch('svc', 'ollama', 'merge', lb_patch, ns=LLM_NS)
+        kube_patch(*WEBUI_SVC_SPEC, 'merge', lb_patch, ns=LLM_NS)
+        kube_patch(*OLLAMA_SVC_SPEC, 'merge', lb_patch, ns=LLM_NS)
         pr_ok()
     if not fast:
         pr('Awaiting agent readiness... ')
         spin_wait(*ns_pods_rdy(LLM_NS))
+        setup_llm_pf()
     pr('---\n')
 
     # deploy prometheus+grafana
@@ -603,6 +644,7 @@ def main():
         spin_wait(*ns_pods_rdy(APP_NS))
         pr('Awaiting agent readiness... ')
         spin_wait(*ns_pods_rdy(LLM_NS))
+        setup_llm_pf()
         pr('Awaiting monitoring readiness... ')
         spin_wait(*ns_pods_rdy(MON_NS))
         pr('---\n')
@@ -620,8 +662,6 @@ def main():
             pr(f'- {name}\n')
             pr(f'  {svc.hostname}:{svc.port}\n', color=CYAN)
     pr('---\n')
-    if not use_lb:
-        pr('LoadBalancers were not patched in.\n', color=YELLOW)
 
     pr('Pulling Qwen3 model... ')
     ollama_host, ollama_port = svcss[LLM_NS]['ollama']
