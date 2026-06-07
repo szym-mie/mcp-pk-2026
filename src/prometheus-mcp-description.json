@@ -1,0 +1,16 @@
+[
+  {
+    "type": "openapi",
+    "url": "http://prometheus-mcp-server:8000",
+    "spec_type": "url",
+    "spec": "",
+    "path": "/openapi.json",
+    "auth_type": "none",
+    "key": "",
+    "info": {
+      "id": "prometheus-mcp-server",
+      "name": "prometheus-mcp-server",
+      "description": "Kubernetes MCP server for managing Prometheus Operator configuration."
+    }
+  }
+]

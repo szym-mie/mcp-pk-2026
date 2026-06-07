@@ -1,0 +1,247 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-namespace-read
+  namespace: mcp-demo
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-namespace-read-binding
+  namespace: mcp-demo
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: mcp-demo
+roleRef:
+  kind: Role
+  name: mcp-namespace-read
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-monitoring-access
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["monitoring.coreos.com"]
+    resources:
+      - servicemonitors
+      - podmonitors
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-monitoring-binding
+  namespace: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: mcp-demo
+roleRef:
+  kind: Role
+  name: mcp-monitoring-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-monitoring-crd-access
+rules:
+  - apiGroups: ["monitoring.coreos.com"]
+    resources:
+      - servicemonitors
+      - podmonitors
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-monitoring-crd-binding
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: mcp-demo
+roleRef:
+  kind: ClusterRole
+  name: mcp-monitoring-crd-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-mcp-server
+  namespace: mcp-demo
+data:
+  server.py: |
+    import subprocess
+    import json
+    import time
+    import sys
+    from mcp.server.fastmcp import FastMCP
+
+    mcp = FastMCP("k8s-mcp-monitoring")
+
+    def run_kubectl(args: list[str]) -> dict:
+        start = time.time()
+
+        result = subprocess.run(
+            ["kubectl"] + args,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        return {
+            "ok": result.returncode == 0,
+            "command": "kubectl " + " ".join(args),
+            "returncode": result.returncode,
+            "duration_ms": round((time.time() - start) * 1000, 3),
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
+    @mcp.tool()
+    def update_servicemonitor_scrape_interval(
+        name: str,
+        interval: str,
+        namespace: str = "monitoring"
+    ) -> dict:
+        """
+        Update scrape interval on ServiceMonitor.
+
+        The interval MUST be a valid Prometheus duration string.
+
+        Valid formats:
+        - 15s
+        - 30s
+        - 1m
+        - 5m
+
+        Invalid:
+        - 15
+        - 15 seconds
+        - "one minute"
+
+        No automatic conversion is performed unless explicitly handled in code.
+        """
+
+        patch = [
+            {
+                "op": "replace",
+                "path": "/spec/endpoints/0/interval",
+                "value": interval
+            }
+        ]
+
+        result = run_kubectl([
+            "-n", namespace,
+            "patch", "servicemonitor", name,
+            "--type=json",
+            "-p", json.dumps(patch)
+        ])
+
+        return {
+            "success": result.get("returncode", 1) == 0,
+            "status": "command executed successfully" if result.get("returncode", 1) == 0 else "command failed",
+            "error": result.get("stderr") if result.get("returncode", 1) != 0 else None
+        }
+
+    if __name__ == "__main__":
+        mcp.run(transport="stdio")
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-mcp-server
+  namespace: mcp-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-mcp-server
+  template:
+    metadata:
+      labels:
+        app: prometheus-mcp-server
+    spec:
+      containers:
+        - name: mcp
+          image: python:3.11-slim
+          ports:
+            - name: http
+              containerPort: 8000
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Installing dependencies..."
+              pip install --no-cache-dir "mcp[cli]" mcpo
+
+              echo "Installing kubectl..."
+              apt-get update
+              apt-get install -y curl ca-certificates
+              curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+              install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+              rm kubectl
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+
+              echo "Starting verbose Kubernetes MCP server through mcpo..."
+              mcpo --host 0.0.0.0 --port 8000 -- python /app/server.py
+
+          volumeMounts:
+            - name: code
+              mountPath: /app/server.py
+              subPath: server.py
+
+      volumes:
+        - name: code
+          configMap:
+            name: prometheus-mcp-server
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-mcp-server
+  namespace: mcp-demo
+spec:
+  selector:
+    app: prometheus-mcp-server
+  ports:
+    - port: 8000
+      targetPort: 8000
