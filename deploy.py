@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import textwrap
+import base64
 from collections import namedtuple
 from pathlib import Path
 from typing import Iterable
@@ -431,6 +432,12 @@ def ns_pods_rdy(ns, min_cnt=0):
     test_func = lambda pods: are_pods_rdy(pods, min_cnt)
     return lambda: kube_get_pods(ns), test_func, pr_pods_rdy_cnt 
 
+def get_grafana_passwd(ns):
+    res = kube(*kube_ns_arg(ns), 'get', 'secrets', 'monitoring-grafana')
+    if res:
+        passwd_base64 = res['data']['admin-password']
+        return base64.b64decode(passwd_base64)
+
 # == main ==
 
 def read_bool(smth):
@@ -677,6 +684,11 @@ def main():
         for name, svc in svcs.items():
             pr(f'- {name}\n')
             pr(f'  {svc.hostname}:{svc.port}\n', color=CYAN)
+    pr('---\n')
+    pr('Secrets:\n')
+    grafana_passwd = get_grafana_passwd(ns=MON_NS).decode(ENCODING)
+    pr('- Grafana password: ')
+    pr(f'{grafana_passwd}\n', color=CYAN)
     pr('---\n')
 
     pr('Pulling agent model... ')

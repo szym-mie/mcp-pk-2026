@@ -1,3 +1,105 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-namespace-read
+  namespace: agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-namespace-read-binding
+  namespace: agent
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: agent
+roleRef:
+  kind: Role
+  name: mcp-namespace-read
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-monitoring-access
+  namespace: monitor
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["monitoring.coreos.com"]
+    resources:
+      - servicemonitors
+      - podmonitors
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-monitoring-binding
+  namespace: monitor
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: agent
+roleRef:
+  kind: Role
+  name: mcp-monitoring-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-monitoring-crd-access
+rules:
+  - apiGroups: ["monitoring.coreos.com"]
+    resources:
+      - servicemonitors
+      - podmonitors
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-monitoring-crd-binding
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: agent
+roleRef:
+  kind: ClusterRole
+  name: mcp-monitoring-crd-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:

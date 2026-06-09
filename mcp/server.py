@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
+import time
+import subprocess
 from datetime import datetime, timedelta
 from typing import Any
 
+import json
 import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -15,6 +19,72 @@ PROMETHEUS_URL = os.getenv(
 )
 
 mcp = FastMCP('prometheus')
+
+
+def run_kubectl(args: list[str]) -> dict:
+    start = time.time()
+
+    result = subprocess.run(
+            ["kubectl"] + args,
+            capture_output=True,
+            text=True,
+            timeout=30,
+    )
+
+    return {
+            "ok": result.returncode == 0,
+            "command": "kubectl " + " ".join(args),
+            "returncode": result.returncode,
+            "duration_ms": round((time.time() - start) * 1000, 3),
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+    }
+
+@mcp.tool()
+def update_servicemonitor_scrape_interval(
+        name: str,
+        interval: str,
+        namespace: str
+) -> dict:
+    """
+    Update scrape interval on ServiceMonitor.
+
+    The interval MUST be a valid Prometheus duration string.
+
+    Valid formats:
+    - 15s
+    - 30s
+    - 1m
+    - 5m
+
+    Invalid:
+    - 15
+    - 15 seconds
+    - "one minute"
+
+    No automatic conversion is performed unless explicitly handled in code.
+    """
+
+    patch = [
+        {
+            "op": "replace",
+            "path": "/spec/endpoints/0/interval",
+            "value": interval
+        }
+    ]
+
+    result = run_kubectl([
+        "-n", namespace,
+        "patch", "servicemonitor", name,
+        "--type=json",
+        "-p", json.dumps(patch)
+    ])
+
+    return {
+        "success": result.get("returncode", 1) == 0,
+        "status": "command executed successfully" if result.get("returncode", 1) == 0 else "command failed",
+        "error": result.get("stderr") if result.get("returncode", 1) != 0 else None
+    }
 
 
 class PrometheusClient:
@@ -111,9 +181,9 @@ async def run_query(query: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def run_range_query(
-    query: str,
-    hours: int = 1,
-    step: str = '1m',
+        query: str,
+        hours: int = 1,
+        step: str = '1m',
 ) -> dict[str, Any]:
     '''
     Execute a PromQL range query.
@@ -189,7 +259,7 @@ def top_n(results: list[dict], n: int = 10):
 
 @mcp.tool()
 async def top_cpu_consumers(
-    limit: int = 10,
+        limit: int = 10,
 ) -> list[dict]:
     '''
     Top CPU-consuming Kubernetes pods.
@@ -228,7 +298,7 @@ async def top_cpu_consumers(
 
 @mcp.tool()
 async def top_memory_consumers(
-    limit: int = 10,
+        limit: int = 10,
 ) -> list[dict]:
     '''
     Top memory-consuming pods.
@@ -290,8 +360,8 @@ async def active_alerts() -> list[dict]:
 
 @mcp.tool()
 async def pod_restarts(
-    hours: int = 24,
-    limit: int = 20,
+        hours: int = 24,
+        limit: int = 20,
 ) -> list[dict]:
     '''
     Pods with the most restarts.
@@ -323,7 +393,7 @@ async def pod_restarts(
 
 @mcp.tool()
 async def namespace_usage(
-    namespace: str,
+        namespace: str,
 ) -> dict:
     '''
     CPU and memory usage for a namespace.

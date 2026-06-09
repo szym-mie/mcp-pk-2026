@@ -3,3 +3,4 @@ mcpo
 httpx
 pydantic
 uvicorn
+kubernetes

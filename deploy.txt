@@ -4,10 +4,10 @@ region             =us-east-1
 cluster_name       =cluster
 nodegroup_name     =nodes
 subnets            =2
-machine_type       =t3.large
-min_nodes          =6
-max_nodes          =6
-typ_nodes          =6
+machine_type       =c6i.xlarge
+min_nodes          =4
+max_nodes          =4
+typ_nodes          =4
 # load-balancing and port-forwarding
 lb_patch           ={"spec":{"type":"LoadBalancer"}}
 # use load-balancing
